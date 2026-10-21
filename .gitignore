@@ -33,3 +33,6 @@ CLAUDE.md
 
 # Local deployment settings
 deploy/config.env
+
+# Unpublished manuscript drafts
+*.docx

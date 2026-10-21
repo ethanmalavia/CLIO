@@ -18,3 +18,4 @@ documents/
 tests/
 rag/
 deploy/config.env
+*.docx
