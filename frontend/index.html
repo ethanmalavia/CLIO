@@ -496,6 +496,17 @@ function addThinkingIndicator() {
   chatThread.scrollTop = chatThread.scrollHeight;
 }
 
+// Errors (rate limits, oversized requests, server faults) are not agent
+// responses: show them without a provenance widget, which would otherwise
+// label them as grounded in the region statistics.
+function addErrorMessage(text) {
+  const row = document.createElement("div");
+  row.className = "message-row";
+  row.innerHTML = `<div class="assistant-text" role="alert" style="color:var(--muted)">&#9888; ${escHtml(text)}</div>`;
+  chatThread.appendChild(row);
+  chatThread.scrollTop = chatThread.scrollHeight;
+}
+
 function removeThinkingIndicator() {
   const el = document.getElementById("thinking-row");
   if (el) el.remove();
@@ -536,12 +547,20 @@ async function submitQuery() {
     const data = await res.json();
     removeThinkingIndicator();
 
-    const reply = data.textResponse || data.error || "No response.";
+    if (!res.ok) {
+      // Keep the failed turn out of the history sent back to the model.
+      conversationHistory.pop();
+      addErrorMessage(data.error || "Something went wrong. Please try again.");
+      return;
+    }
+
+    const reply = data.textResponse || "No response.";
     addAssistantMessage(reply, data.toolLog);
     conversationHistory.push({ role: "assistant", content: reply });
   } catch (err) {
     removeThinkingIndicator();
-    addAssistantMessage("Error reaching the server. Please try again.");
+    if (conversationHistory.at(-1)?.role === "user") conversationHistory.pop();
+    addErrorMessage("Error reaching the server. Please try again.");
   } finally {
     inputEl.disabled = false;
     inputEl.focus();

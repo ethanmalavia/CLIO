@@ -30,9 +30,13 @@ ENV_VARS=(
     "MAX_MESSAGE_CHARS=$MAX_MESSAGE_CHARS"
     "MAX_REQUEST_BYTES=$MAX_REQUEST_BYTES"
     "ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}"
+    "NOMINATIM_USER_AGENT=${NOMINATIM_USER_AGENT:-}"
+    "NOMINATIM_MIN_INTERVAL=${NOMINATIM_MIN_INTERVAL:-1.1}"
+    "AUDIT_LOG=${AUDIT_LOG:-false}"
 )
-# "^@^" tells gcloud to split on @ instead of commas (ALLOWED_ORIGINS may hold commas).
-ENV_ARG="^@^$(IFS=@; echo "${ENV_VARS[*]}")"
+# "^|^" tells gcloud to split on | instead of commas: ALLOWED_ORIGINS may hold commas
+# and NOMINATIM_USER_AGENT usually holds an email address.
+ENV_ARG="^|^$(IFS="|"; echo "${ENV_VARS[*]}")"
 
 echo "==> Building $IMAGE"
 gcloud builds submit --project "$PROJECT_ID" --region "$REGION" --tag "$IMAGE" .

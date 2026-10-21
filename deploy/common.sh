@@ -4,7 +4,8 @@ set -euo pipefail
 
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$DEPLOY_DIR/.." && pwd)"
-CONFIG="$DEPLOY_DIR/config.env"
+# One config per deployed service; pick another with CLIO_CONFIG=deploy/<name>.env
+CONFIG="${CLIO_CONFIG:-$DEPLOY_DIR/config.env}"
 
 if [ ! -f "$CONFIG" ]; then
     echo "Missing $CONFIG. Copy deploy/config.env.example to deploy/config.env and fill it in." >&2
@@ -20,7 +21,7 @@ set +a
 require() {
     for name in "$@"; do
         if [ -z "${!name:-}" ]; then
-            echo "deploy/config.env: $name is required." >&2
+            echo "$CONFIG: $name is required." >&2
             exit 1
         fi
     done

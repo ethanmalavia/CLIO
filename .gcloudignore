@@ -17,5 +17,5 @@ documents/
 *.pdf
 tests/
 rag/
-deploy/config.env
+deploy/*.env
 *.docx
