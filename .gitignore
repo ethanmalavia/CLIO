@@ -27,3 +27,9 @@ build/
 
 # Claude Context
 CLAUDE.md
+
+# Archives of the data directory
+*.zip
+
+# Local deployment settings
+deploy/config.env

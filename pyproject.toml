@@ -46,5 +46,9 @@ dependencies = [
     "python-dotenv"
 ]
 
+[project.optional-dependencies]
+# Production server for Cloud Run (see Dockerfile and deploy/README.md)
+deploy = ["gunicorn>=22,<24"]
+
 [tool.setuptools.packages.find]
 where = ["src"]  # Look in the 'src' folder for code

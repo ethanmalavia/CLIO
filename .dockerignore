@@ -1,0 +1,19 @@
+# Keep the build context small: data is mounted from Cloud Storage at runtime.
+.git
+.gitignore
+.dockerignore
+.env
+.env.*
+.idea
+**/__pycache__
+**/*.pyc
+**/*.egg-info
+venv
+.venv
+data
+documents
+*.zip
+*.nc
+*.pdf
+tests
+rag

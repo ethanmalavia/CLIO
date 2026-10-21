@@ -4,6 +4,7 @@ and interprets it; it no longer performs any data manipulation itself.
 """
 
 import json
+import os
 from typing import Literal, List
 
 from dotenv import load_dotenv
@@ -23,7 +24,7 @@ load_dotenv()
 _VECTORSTORE    = get_vectorstore()
 TOOLS           = build_tools(_VECTORSTORE)
 _KB_BLOCK       = knowledge_base_prompt_block(_VECTORSTORE)
-_llm            = ChatGoogleGenerativeAI(model="gemini-pro-latest", temperature=0)
+_llm            = ChatGoogleGenerativeAI(model=os.getenv("GEMINI_MODEL", "gemini-pro-latest"), temperature=0)
 _llm_with_tools = _llm.bind_tools(TOOLS)
 
 # ── Graph nodes ─────────────────────────────────────────────────────────────
