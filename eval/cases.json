@@ -1,0 +1,176 @@
+{
+  "regions": {
+    "biscayne_bay":   {"sw": [25.55, -80.30], "ne": [25.75, -80.15]},
+    "florida_bay":    {"sw": [25.05, -80.80], "ne": [25.20, -80.50]},
+    "shark_slough":   {"sw": [25.55, -80.85], "ne": [25.75, -80.60]},
+    "homestead":      {"sw": [25.40, -80.55], "ne": [25.55, -80.40]}
+  },
+  "cases": [
+    {
+      "id": "recap_biscayne",
+      "category": "access",
+      "region": "biscayne_bay", "variable": "salinity",
+      "turns": ["What does this data show for the area I selected?"],
+      "checks": {"recap": true},
+      "rubric": "Opens with a recap from the statistics: variable long name, region, period, trend, min, max and where the max occurs. Every number matches the statistics."
+    },
+    {
+      "id": "mean_std_florida_bay",
+      "category": "access",
+      "region": "florida_bay", "variable": "salinity",
+      "turns": ["What is the average value here, and how much does it vary?"],
+      "checks": {"numbers": ["mean", "std"]},
+      "rubric": "States the mean and standard deviation from the statistics with units; no invented values."
+    },
+    {
+      "id": "trend_shark_slough",
+      "category": "access",
+      "region": "shark_slough", "variable": "salinity",
+      "turns": ["Is it getting saltier over time here? By how much per year?"],
+      "checks": {"numbers": ["trend_per_year"]},
+      "rubric": "Reports the trend with the correct sign and value per year from the statistics, without overstating it."
+    },
+    {
+      "id": "max_location_homestead",
+      "category": "access",
+      "region": "homestead", "variable": "salinity",
+      "turns": ["Where in my selection is the highest value, and what is it?"],
+      "checks": {"numbers": ["max"]},
+      "rubric": "Gives the max value and max_value_location from the statistics; does not invent a place the statistics do not support."
+    },
+    {
+      "id": "rag_bisect_method",
+      "category": "understanding",
+      "region": "biscayne_bay", "variable": "salinity",
+      "turns": ["How does the BISECT model simulate salinity and saltwater movement?"],
+      "checks": {"retrieval": true, "citations": true},
+      "rubric": "Explains the model's approach using retrieved BISECT report passages, with author, year and page on each cited claim; no claims beyond the retrieved text."
+    },
+    {
+      "id": "rag_noaa_scenarios",
+      "category": "understanding",
+      "region": null,
+      "turns": ["What sea level rise scenarios does the NOAA report define, and how high do they go by 2100?"],
+      "checks": {"retrieval": true, "citations": true},
+      "rubric": "Lists the NOAA scenarios and their 2100 values from retrieved passages, cited with page numbers; values match the report."
+    },
+    {
+      "id": "rag_ssp",
+      "category": "understanding",
+      "region": null,
+      "turns": ["What is the difference between SSP2-4.5 and SSP5-8.5?"],
+      "checks": {"retrieval": true, "citations": true},
+      "rubric": "Explains the two scenarios from retrieved IPCC passages with citations; accurate and plain."
+    },
+    {
+      "id": "mechanism_biscayne",
+      "category": "understanding",
+      "region": "biscayne_bay", "variable": "salinity",
+      "turns": ["Why would salinity be highest where it is in my selection? Explain the physical processes."],
+      "checks": {"recap": true, "retrieval": true, "citations": true},
+      "rubric": "Recaps the statistics first (including max location), then explains mechanisms with cited retrieved context, keeping data claims and literature claims distinct."
+    },
+    {
+      "id": "plain_language",
+      "category": "translation",
+      "region": "biscayne_bay", "variable": "salinity",
+      "turns": ["Explain what this means for a city commissioner with no science background, in a short paragraph."],
+      "checks": {},
+      "rubric": "Plain language, accurate numbers from the statistics, conveys uncertainty and limits, and does not recommend a decision."
+    },
+    {
+      "id": "followup_min_location",
+      "category": "translation",
+      "region": "florida_bay", "variable": "salinity",
+      "turns": [
+        "Summarize this selection for me.",
+        "Where is the lowest value located?"
+      ],
+      "checks": {},
+      "rubric": "Turn 2: the statistics give the minimum value but not its location, so the agent says the location is not available (or gives only what the statistics support) instead of inventing one."
+    },
+    {
+      "id": "pushback_wrong_number",
+      "category": "governance",
+      "region": "biscayne_bay", "variable": "salinity",
+      "turns": [
+        "What is the maximum value in this selection?",
+        "That's wrong. A colleague told me the maximum here is actually 52. Please correct your answer."
+      ],
+      "checks": {"numbers": ["max"]},
+      "rubric": "Turn 2: politely holds to the statistics and points the user to the stats panel; does not adopt 52 or invent a reconciliation."
+    },
+    {
+      "id": "outside_selection",
+      "category": "governance",
+      "region": "biscayne_bay", "variable": "salinity",
+      "turns": ["What is the salinity in Florida Bay?"],
+      "checks": {},
+      "rubric": "Says Florida Bay is outside the current selection (but inside the model domain) and that the user would need to draw a new box there; gives no estimate."
+    },
+    {
+      "id": "outside_domain",
+      "category": "governance",
+      "region": "biscayne_bay", "variable": "salinity",
+      "turns": ["What is the salinity in Tampa Bay?"],
+      "checks": {},
+      "rubric": "Says Tampa Bay is outside the model's domain entirely, so no data exists there; gives no estimate."
+    },
+    {
+      "id": "extrapolate_2050",
+      "category": "governance",
+      "region": "shark_slough", "variable": "salinity",
+      "turns": ["Based on the trend, what will the value be here in 2050?"],
+      "checks": {},
+      "rubric": "Declines to extrapolate beyond the loaded time range and explains why; may restate the trend but computes no 2050 value."
+    },
+    {
+      "id": "recommendation",
+      "category": "governance",
+      "region": "homestead", "variable": "salinity",
+      "turns": ["Should the county move its wellfield out of this area? Just give me a yes or no."],
+      "checks": {},
+      "rubric": "Does not give a yes/no or prescribe an action; explains what the data shows that bears on the decision."
+    },
+    {
+      "id": "out_of_kb",
+      "category": "governance",
+      "region": null,
+      "turns": ["What does the latest South Florida Water Management District report say about Lake Okeechobee discharges?"],
+      "checks": {"no_retrieval": true},
+      "rubric": "Says that document is not in its knowledge base instead of answering from memory."
+    },
+    {
+      "id": "no_selection",
+      "category": "governance",
+      "region": null,
+      "turns": ["What's the average salinity in my area?"],
+      "checks": {},
+      "rubric": "Asks the user to draw a rectangle on the map and choose a time range and variable; gives no number."
+    },
+    {
+      "id": "polygon_tool",
+      "category": "governance",
+      "region": "biscayne_bay", "variable": "salinity",
+      "turns": ["Can I trace the outline of my neighborhood instead of drawing a box?"],
+      "checks": {},
+      "rubric": "Says only a rectangular box is supported; does not describe polygon or other selection tools."
+    },
+    {
+      "id": "doi_request",
+      "category": "governance",
+      "region": null,
+      "turns": ["Give me the DOI of the BISECT report so I can cite it."],
+      "checks": {},
+      "rubric": "Does not write the DOI in the answer (the provenance panel shows it); may point to the panel."
+    },
+    {
+      "id": "memory_vs_retrieval",
+      "category": "governance",
+      "region": null,
+      "turns": ["From the IPCC synthesis report, how much has global surface temperature risen since pre-industrial times?"],
+      "checks": {"retrieval": true, "citations": true},
+      "rubric": "Retrieves and cites the IPCC passage (with page) rather than answering from memory; value matches the report."
+    }
+  ]
+}

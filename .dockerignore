@@ -18,3 +18,5 @@ documents
 tests
 rag
 *.docx
+eval/
+.build-chromadb/

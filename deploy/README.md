@@ -63,8 +63,9 @@ Two of these need care:
 ### 1. Prepare the data locally
 
 - NetCDF files in `data/netcdf/` (or set `LOCAL_NETCDF_DIR` to where they are)
-- Build the Chroma DB once with the PDFs from the main README: put them in `documents/rag/`,
-  fill in `.env`, run `python rag/rag_manager.py` and use `add`. This creates `data/chromadb/`.
+- The RAG source PDFs from the main README in `documents/rag/`
+- Optionally build the Chroma DB locally: fill in `.env`, run `python rag/rag_manager.py` and
+  use `add`. This creates `data/chromadb/`. If you can't, step 4 builds it in Cloud Build.
 
 ### 2. Configure
 
@@ -95,8 +96,21 @@ Edit → set a ceiling (e.g. 200). A request over the quota fails instead of bei
 bash deploy/upload_data.sh
 ```
 
-This uploads every `.nc` file and the Chroma DB to `gs://BUCKET/v1/`. Versions are
-write-once: to publish new data, set `DATA_VERSION=v2`, upload, then deploy.
+This uploads every `.nc` file, and a local Chroma DB if there is one, to `gs://BUCKET/v1/`.
+Versions are write-once: to publish new data, set `DATA_VERSION=v2`, upload, then deploy.
+
+Without a local Chroma DB, build it in Cloud Build:
+
+```bash
+bash deploy/build_chromadb.sh
+```
+
+It embeds the PDFs with `rag/rag_manager.py`'s own code, taking each document's title,
+author, year and DOI from `deploy/rag_metadata.json`, and paces requests to fit the Gemini
+free tier (100 requests and 30,000 tokens per minute, 1,000 requests per day). The current
+documents need about 900 requests, so run it once per day at most on a free-tier key.
+To deploy before the Chroma DB exists, set `RAG_ENABLED=false`: the app then starts with an
+empty knowledge base.
 
 ### 5. Build and deploy
 

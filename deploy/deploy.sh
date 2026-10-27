@@ -13,13 +13,16 @@ case "$GEMINI_MODEL" in
 esac
 
 cd "$REPO_ROOT"
-TAG="$(git rev-parse --short HEAD)-$(date -u +%Y%m%d%H%M%S)"
-IMAGE="$IMAGE_BASE:$TAG"
+# IMAGE may be set to deploy an image that is already built (eval/deploy_arms.sh).
+BUILD_IMAGE=false
+if [ -z "${IMAGE:-}" ]; then
+    IMAGE="$IMAGE_BASE:$(git rev-parse --short HEAD)-$(date -u +%Y%m%d%H%M%S)"
+    BUILD_IMAGE=true
+fi
 DATA="/data/$DATA_VERSION"
 
 ENV_VARS=(
     "NETCDF_DATA_PATH=$DATA/netcdf/$NETCDF_FILE"
-    "CHROMADB_SOURCE_PATH=$DATA/chromadb"
     "CHROMADB_PATH=/tmp/chromadb"
     "CHROMADB_COLLECTION=$CHROMADB_COLLECTION"
     "DOCS_PATH=$DATA/documents"
@@ -34,12 +37,18 @@ ENV_VARS=(
     "NOMINATIM_MIN_INTERVAL=${NOMINATIM_MIN_INTERVAL:-1.1}"
     "AUDIT_LOG=${AUDIT_LOG:-false}"
 )
+# RAG_ENABLED=false starts with an empty knowledge base, e.g. before the Chroma DB is built.
+if [ "${RAG_ENABLED:-true}" = true ]; then
+    ENV_VARS+=("CHROMADB_SOURCE_PATH=$DATA/chromadb")
+fi
 # "^|^" tells gcloud to split on | instead of commas: ALLOWED_ORIGINS may hold commas
 # and NOMINATIM_USER_AGENT usually holds an email address.
 ENV_ARG="^|^$(IFS="|"; echo "${ENV_VARS[*]}")"
 
-echo "==> Building $IMAGE"
-gcloud builds submit --project "$PROJECT_ID" --region "$REGION" --tag "$IMAGE" .
+if [ "$BUILD_IMAGE" = true ]; then
+    echo "==> Building $IMAGE"
+    gcloud builds submit --project "$PROJECT_ID" --region "$REGION" --tag "$IMAGE" .
+fi
 
 echo "==> Deploying $SERVICE (data $DATA_VERSION, $NETCDF_FILE, model $GEMINI_MODEL)"
 gcloud run deploy "$SERVICE" \

@@ -1,0 +1,41 @@
+# Builds the Chroma DB from the RAG source PDFs with rag/rag_manager.py's own
+# loading and embedding code (via deploy/build_chromadb.py), then copies it to
+# Cloud Storage.
+# Run by deploy/build_chromadb.sh, which uploads the PDFs and reviewed metadata.
+steps:
+  - id: embed
+    name: python:3.11-slim
+    entrypoint: bash
+    secretEnv: [GEMINI_API_KEY]
+    env:
+      - CHROMADB_PATH=/workspace/chromadb
+      - DOCS_PATH=/workspace/documents
+      - CHROMADB_COLLECTION=${_COLLECTION}
+      - EMBED_REQUESTS_PER_MINUTE=${_EMBED_RPM}
+      - EMBED_TOKENS_PER_MINUTE=${_EMBED_TPM}
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        pip install --quiet --no-cache-dir -e .
+        export GOOGLE_API_KEY="$$GEMINI_API_KEY"
+        python deploy/build_chromadb.py
+        test -f /workspace/chromadb/chroma.sqlite3
+
+  - id: upload
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - gcloud storage cp -r /workspace/chromadb/* gs://${_BUCKET}/${_DATA_VERSION}/chromadb/
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/${_SECRET}/versions/latest
+      env: GEMINI_API_KEY
+
+substitutions:
+  _EMBED_RPM: "90"
+  _EMBED_TPM: "24000"
+
+timeout: 3600s

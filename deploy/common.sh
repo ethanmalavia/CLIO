@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Shared setup for the deploy scripts: load config and check required values.
 set -euo pipefail
+# Git Bash on Windows would rewrite container paths such as /data into C:/... paths
+# in these gcloud arguments (ignored on macOS and Linux).
+export MSYS2_ARG_CONV_EXCL="volume=;^|^"
 
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$DEPLOY_DIR/.." && pwd)"

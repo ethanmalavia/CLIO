@@ -19,3 +19,5 @@ tests/
 rag/
 deploy/*.env
 *.docx
+eval/
+.build-chromadb/

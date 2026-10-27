@@ -36,3 +36,9 @@ deploy/*.env
 
 # Unpublished manuscript drafts
 *.docx
+
+# Model evaluation output (contains statistics from unpublished data)
+eval/results/
+
+# Staging folder of deploy/build_chromadb.sh
+.build-chromadb/

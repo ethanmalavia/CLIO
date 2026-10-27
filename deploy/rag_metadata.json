@@ -1,0 +1,20 @@
+{
+  "IPCC_AR6_SYR_SPM.pdf": {
+    "author": "IPCC",
+    "doi": "10.59327/IPCC/AR6-9789291691647.001",
+    "title": "Climate Change 2023: Synthesis Report. Summary for Policymakers",
+    "year": "2023"
+  },
+  "bisect_paper.pdf": {
+    "author": "Swain, E.D., Lohmann, M.A., and Goodwin, C.R.",
+    "doi": "10.3133/sir20195045",
+    "title": "The Hydrologic System of the South Florida Peninsula: Development and Application of the Biscayne and Southern Everglades Coastal Transport (BISECT) Model",
+    "year": "2019"
+  },
+  "noaa_18399_DS1.pdf": {
+    "author": "Sweet, W.V., Kopp, R.E., Weaver, C.P., Obeysekera, J., Horton, R.M., Thieler, E.R., and Zervas, C.",
+    "doi": "10.7289/V5/TR-NOS-COOPS-083",
+    "title": "Global and Regional Sea Level Rise Scenarios for the United States (NOAA Technical Report NOS CO-OPS 083)",
+    "year": "2017"
+  }
+}
