@@ -1,6 +1,7 @@
 # Deploying CLIO to Google Cloud Run
 
-This folder deploys CLIO as a **private** Cloud Run service. The data (NetCDF + Chroma DB)
+This folder deploys CLIO as a Cloud Run service, **private** by default (see
+"Public deployment" below). The data (NetCDF + Chroma DB)
 lives in a Cloud Storage bucket that is mounted read-only into the container. CLIO's data
 access, retrieval and agent behave exactly as they do locally, and local development still
 runs with `python -m clio.app`.
@@ -29,8 +30,11 @@ browser ──(gcloud run services proxy)──> Cloud Run: clio (gunicorn + cli
 | --- | --- | --- |
 | Access | Service is private (`--no-allow-unauthenticated`); only people granted `roles/run.invoker` can call it | `deploy.sh`, step 6 |
 | Scaling | Max 1 instance per service, min 0 (no idle cost) | `config.env` |
-| Per client | 6 questions/minute and 6 map selections/minute, per IP | `src/clio/wsgi.py` |
-| Per day | 100 questions per instance per UTC day | `src/clio/wsgi.py` |
+| Per client | Questions and map selections per minute and per UTC day, per IP | `src/clio/wsgi.py` |
+| Per day | Questions and map selections per UTC day, all users together | `src/clio/wsgi.py` |
+| Restarts | Daily counts kept in Firestore (`LIMITS_STORE=firestore`), so scaling to zero doesn't reset them; IPs stored only as salted hashes, deleted after 2 days | `src/clio/wsgi.py`, `setup.sh` |
+| Memory | At most 2 map selections processed at once; more get "busy, try again" | `src/clio/wsgi.py` |
+| Gemini errors | Quota and overload errors shown as plain "usage limit" / "busy" messages | `src/clio/wsgi.py` |
 | Request size | Bodies over 256 KB and messages over 4,000 characters are rejected | `src/clio/wsgi.py` |
 | CORS | Cross-origin browser calls are blocked unless listed in `ALLOWED_ORIGINS` | `src/clio/wsgi.py` |
 | Errors | 500 responses return a generic message; details stay in Cloud Logging | `src/clio/wsgi.py` |
@@ -45,8 +49,9 @@ browser ──(gcloud run services proxy)──> Cloud Run: clio (gunicorn + cli
 
 Two of these need care:
 
-- **The in-app daily limit is per instance and resets when an instance restarts.** It stops
-  runaway loops, but the Gemini quota in step 3 is the real hard cap.
+- **With `LIMITS_STORE=memory` the daily limits reset whenever the instance restarts or
+  scales to zero.** Use `firestore` for anything reachable by the public. The Gemini quota
+  (free-tier limits, or the cap in step 3) is the real hard cap on model use.
 - **Budget alerts only send email; they don't stop spending.** The quota does.
 
 ## Prerequisites
@@ -132,6 +137,23 @@ gcloud run services proxy clio --region us-east1 --port 8080
 Then browse to http://localhost:8080. The first request after the service has been idle
 takes 10–30 seconds while an instance starts.
 
+## Public deployment
+
+Set `PUBLIC=true` and redeploy; anyone with the URL can then use CLIO without signing in.
+Before doing that:
+
+- **Size the limits to the Gemini quota.** Each question makes 2-3 model requests. On the
+  free tier, Flash allows 20 requests/day and Flash-Lite 500/day per project, so
+  `DAILY_QUERY_LIMIT` should be about a third of that. Per-client limits keep one person
+  from using the whole day's allowance.
+- **Use `LIMITS_STORE=firestore`**, so the daily limits hold across restarts.
+- **Know what the limits don't stop:** someone using many IP addresses can still use up the
+  day's total, which locks everyone out until midnight UTC. Cost stays bounded:
+  `MAX_INSTANCES=1`, the daily totals and the free Gemini tier cap the spend at a few
+  dollars a month of Cloud Run time beyond the free tier.
+- **The data becomes visible to everyone,** and on a free-tier key Google may use the
+  prompts, which carry statistics from the data.
+
 ## Comparing scenarios: one service per dataset
 
 CLIO serves one dataset per process. To compare the historical baseline with SSP5-8.5,
@@ -169,6 +191,7 @@ gcloud logging read 'jsonPayload.message="clio.query"' --limit 20 --format json
 | Change a limit without rebuilding | `gcloud run services update clio --region us-east1 --update-env-vars DAILY_QUERY_LIMIT=50` |
 | Turn the audit log on or off | `gcloud run services update clio --region us-east1 --update-env-vars AUDIT_LOG=true` |
 | **Emergency stop for Gemini spend** | `gcloud run services update clio --region us-east1 --update-env-vars DAILY_QUERY_LIMIT=0` |
+| Make a public service private again | `gcloud run services remove-iam-policy-binding clio --region us-east1 --member allUsers --role roles/run.invoker` |
 | Roll back | `gcloud run revisions list --service clio --region us-east1`, then `gcloud run services update-traffic clio --region us-east1 --to-revisions REVISION=100` |
 | Rotate the Gemini key | `printf '%s' "NEW_KEY" \| gcloud secrets versions add gemini-api-key --data-file -`, then redeploy |
 | View logs | `gcloud run services logs read clio --region us-east1` |

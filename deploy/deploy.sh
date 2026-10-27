@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Build the image with Cloud Build and deploy it to Cloud Run as a private service.
+# Build the image with Cloud Build and deploy it to Cloud Run: private by default,
+# public (no sign-in) with PUBLIC=true.
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 require NETCDF_FILE CHROMADB_COLLECTION GEMINI_MODEL MIN_INSTANCES MAX_INSTANCES \
         DAILY_QUERY_LIMIT QUERY_RATE_PER_MINUTE REGION_RATE_PER_MINUTE \
+        QUERY_DAILY_PER_CLIENT REGION_DAILY_PER_CLIENT REGION_DAILY_LIMIT \
         MAX_MESSAGE_CHARS MAX_REQUEST_BYTES
 
 case "$GEMINI_MODEL" in
@@ -30,6 +32,11 @@ ENV_VARS=(
     "DAILY_QUERY_LIMIT=$DAILY_QUERY_LIMIT"
     "QUERY_RATE_PER_MINUTE=$QUERY_RATE_PER_MINUTE"
     "REGION_RATE_PER_MINUTE=$REGION_RATE_PER_MINUTE"
+    "QUERY_DAILY_PER_CLIENT=$QUERY_DAILY_PER_CLIENT"
+    "REGION_DAILY_PER_CLIENT=$REGION_DAILY_PER_CLIENT"
+    "REGION_DAILY_LIMIT=$REGION_DAILY_LIMIT"
+    "REGION_MAX_CONCURRENT=${REGION_MAX_CONCURRENT:-2}"
+    "LIMITS_STORE=${LIMITS_STORE:-memory}"
     "MAX_MESSAGE_CHARS=$MAX_MESSAGE_CHARS"
     "MAX_REQUEST_BYTES=$MAX_REQUEST_BYTES"
     "ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}"
@@ -50,15 +57,21 @@ if [ "$BUILD_IMAGE" = true ]; then
     gcloud builds submit --project "$PROJECT_ID" --region "$REGION" --tag "$IMAGE" .
 fi
 
-echo "==> Deploying $SERVICE (data $DATA_VERSION, $NETCDF_FILE, model $GEMINI_MODEL)"
+if [ "${PUBLIC:-false}" = true ]; then
+    ACCESS=--allow-unauthenticated
+else
+    ACCESS=--no-allow-unauthenticated
+fi
+
+echo "==> Deploying $SERVICE (data $DATA_VERSION, $NETCDF_FILE, model $GEMINI_MODEL, $ACCESS)"
 gcloud run deploy "$SERVICE" \
     --project "$PROJECT_ID" \
     --region "$REGION" \
     --image "$IMAGE" \
     --service-account "$SERVICE_ACCOUNT" \
-    --no-allow-unauthenticated \
+    "$ACCESS" \
     --execution-environment gen2 \
-    --cpu 2 --memory 4Gi \
+    --cpu "${CPU:-2}" --memory "${MEMORY:-4Gi}" \
     --concurrency 8 \
     --timeout 300 \
     --cpu-boost \
@@ -70,6 +83,12 @@ gcloud run deploy "$SERVICE" \
     --set-env-vars "$ENV_ARG"
 
 echo
-echo "Deployed. To open it, run:"
-echo "  gcloud run services proxy $SERVICE --project $PROJECT_ID --region $REGION --port 8080"
-echo "then browse to http://localhost:8080"
+if [ "${PUBLIC:-false}" = true ]; then
+    echo "Deployed publicly at:"
+    gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" \
+        --format 'value(status.url)'
+else
+    echo "Deployed. To open it, run:"
+    echo "  gcloud run services proxy $SERVICE --project $PROJECT_ID --region $REGION --port 8080"
+    echo "then browse to http://localhost:8080"
+fi

@@ -48,7 +48,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # Production server for Cloud Run (see Dockerfile and deploy/README.md)
-deploy = ["gunicorn>=22,<24"]
+deploy = ["gunicorn>=22,<24", "google-cloud-firestore>=2,<3"]
 
 [tool.setuptools.packages.find]
 where = ["src"]  # Look in the 'src' folder for code

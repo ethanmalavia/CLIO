@@ -10,9 +10,20 @@ Guardrails (all configurable via env vars):
   MAX_MESSAGE_CHARS          longest /query message                  (default 4000)
   QUERY_RATE_PER_MINUTE      /query calls per client per minute      (default 6)
   REGION_RATE_PER_MINUTE     /region/select calls per client/minute  (default 6)
+  QUERY_DAILY_PER_CLIENT     /query calls per client per UTC day     (default 20)
+  REGION_DAILY_PER_CLIENT    /region/select calls per client per day (default 60)
   DAILY_QUERY_LIMIT          /query calls per instance per UTC day   (default 200)
+  REGION_DAILY_LIMIT         /region/select calls per instance/day   (default 300)
+  REGION_MAX_CONCURRENT      /region/select calls processed at once  (default 2)
+  LIMITS_STORE               "memory" (default) or "firestore". Daily counts kept in
+                             memory reset whenever Cloud Run restarts or scales the
+                             instance to zero; "firestore" keeps them across restarts
+                             and instances (clients are stored as salted hashes).
   ALLOWED_ORIGINS            comma-separated origins allowed by CORS (default: none,
                              the bundled frontend is same-origin and needs no CORS)
+
+Gemini quota and overload errors (429 RESOURCE_EXHAUSTED, 503 UNAVAILABLE)
+are returned as 429/503 with a plain message instead of a generic 500.
 
 OpenStreetMap Nominatim (reverse geocoding in /region/select):
   Lookups are serialized across threads, spaced at least NOMINATIM_MIN_INTERVAL
@@ -26,14 +37,15 @@ Audit log (off by default):
                              retrieved sources/pages, for benchmarking and for
                              human-on-the-loop review. Records what users type.
 """
+import hashlib
 import json
 import os
 import re
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from flask import request, jsonify
+from flask import g, request, jsonify
 
 import clio.data_processor as data_processor
 from clio.app import app
@@ -42,7 +54,12 @@ MAX_REQUEST_BYTES      = int(os.getenv("MAX_REQUEST_BYTES", "262144"))
 MAX_MESSAGE_CHARS      = int(os.getenv("MAX_MESSAGE_CHARS", "4000"))
 QUERY_RATE_PER_MINUTE  = int(os.getenv("QUERY_RATE_PER_MINUTE", "6"))
 REGION_RATE_PER_MINUTE = int(os.getenv("REGION_RATE_PER_MINUTE", "6"))
+QUERY_DAILY_PER_CLIENT  = int(os.getenv("QUERY_DAILY_PER_CLIENT", "20"))
+REGION_DAILY_PER_CLIENT = int(os.getenv("REGION_DAILY_PER_CLIENT", "60"))
 DAILY_QUERY_LIMIT      = int(os.getenv("DAILY_QUERY_LIMIT", "200"))
+REGION_DAILY_LIMIT     = int(os.getenv("REGION_DAILY_LIMIT", "300"))
+REGION_MAX_CONCURRENT  = int(os.getenv("REGION_MAX_CONCURRENT", "2"))
+LIMITS_STORE           = os.getenv("LIMITS_STORE", "memory").lower()
 ALLOWED_ORIGINS        = {o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()}
 NOMINATIM_MIN_INTERVAL = float(os.getenv("NOMINATIM_MIN_INTERVAL", "1.1"))
 NOMINATIM_USER_AGENT   = os.getenv("NOMINATIM_USER_AGENT", "")
@@ -54,6 +71,22 @@ RATE_LIMITS = {
     "query":         QUERY_RATE_PER_MINUTE,
     "region_select": REGION_RATE_PER_MINUTE,
 }
+DAILY_PER_CLIENT = {
+    "query":         QUERY_DAILY_PER_CLIENT,
+    "region_select": REGION_DAILY_PER_CLIENT,
+}
+DAILY_LIMITS = {
+    "query":         DAILY_QUERY_LIMIT,
+    "region_select": REGION_DAILY_LIMIT,
+}
+DAILY_LIMIT_MESSAGES = {
+    "query":         "CLIO has reached its daily question limit. Please try again tomorrow.",
+    "region_select": "CLIO has reached its daily map selection limit. Please try again tomorrow.",
+}
+CLIENT_LIMIT_MESSAGES = {
+    "query":         "You have reached today's question limit. Please try again tomorrow.",
+    "region_select": "You have reached today's map selection limit. Please try again tomorrow.",
+}
 
 app.config["MAX_CONTENT_LENGTH"] = MAX_REQUEST_BYTES
 
@@ -61,7 +94,15 @@ _lock          = threading.Lock()
 _minute_window = 0
 _minute_counts = {}     # (endpoint, client) -> calls in the current minute
 _day           = ""
-_day_queries   = 0
+_day_totals    = {}     # endpoint -> calls today on this instance
+_day_counts    = {}     # (endpoint, client) -> calls today
+_region_slots  = threading.BoundedSemaphore(REGION_MAX_CONCURRENT)
+
+_store = None
+if LIMITS_STORE == "firestore":
+    from google.cloud import firestore
+    _store = firestore.Client()
+    _NAMESPACE = os.getenv("K_SERVICE", "clio")   # Cloud Run sets K_SERVICE
 
 
 def _client_id() -> str:
@@ -73,16 +114,66 @@ def _client_id() -> str:
     return request.remote_addr or "unknown"
 
 
-def _too_many(message: str):
+def _too_many(message: str, retry_after: int = 60):
     response = jsonify({"error": message})
     response.status_code = 429
-    response.headers["Retry-After"] = "60"
+    response.headers["Retry-After"] = str(retry_after)
     return response
+
+
+def _take_daily_in_memory(endpoint: str, client: str):
+    """Count one call against today's limits; return an error message if over."""
+    global _day, _day_totals, _day_counts
+    with _lock:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if today != _day:
+            _day, _day_totals, _day_counts = today, {}, {}
+        key = (endpoint, client)
+        if _day_counts.get(key, 0) >= DAILY_PER_CLIENT[endpoint]:
+            return CLIENT_LIMIT_MESSAGES[endpoint]
+        if _day_totals.get(endpoint, 0) >= DAILY_LIMITS[endpoint]:
+            return DAILY_LIMIT_MESSAGES[endpoint]
+        _day_counts[key] = _day_counts.get(key, 0) + 1
+        _day_totals[endpoint] = _day_totals.get(endpoint, 0) + 1
+    return None
+
+
+def _take_daily_in_firestore(endpoint: str, client: str):
+    """Same as _take_daily_in_memory, but shared by all instances and restarts."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    client_hash = hashlib.sha256(f"{today}|{client}".encode()).hexdigest()[:32]
+    day_ref = _store.collection("clio_daily_totals").document(f"{_NAMESPACE}_{today}")
+    client_ref = _store.collection("clio_daily_clients").document(f"{_NAMESPACE}_{today}_{client_hash}")
+    expire_at = datetime.now(timezone.utc) + timedelta(days=2)   # for a Firestore TTL policy
+
+    @firestore.transactional
+    def take(transaction):
+        totals = day_ref.get(transaction=transaction).to_dict() or {}
+        mine = client_ref.get(transaction=transaction).to_dict() or {}
+        if mine.get(endpoint, 0) >= DAILY_PER_CLIENT[endpoint]:
+            return CLIENT_LIMIT_MESSAGES[endpoint]
+        if totals.get(endpoint, 0) >= DAILY_LIMITS[endpoint]:
+            return DAILY_LIMIT_MESSAGES[endpoint]
+        transaction.set(day_ref, {endpoint: totals.get(endpoint, 0) + 1, "expireAt": expire_at}, merge=True)
+        transaction.set(client_ref, {endpoint: mine.get(endpoint, 0) + 1, "expireAt": expire_at}, merge=True)
+        return None
+
+    return take(_store.transaction())
+
+
+def _take_daily(endpoint: str, client: str):
+    if _store is not None:
+        try:
+            return _take_daily_in_firestore(endpoint, client)
+        except Exception as error:   # keep serving with per-instance limits
+            print(json.dumps({"severity": "ERROR", "message": "clio.limits.firestore",
+                              "error": str(error)}), flush=True)
+    return _take_daily_in_memory(endpoint, client)
 
 
 @app.before_request
 def _enforce_limits():
-    global _minute_window, _minute_counts, _day, _day_queries
+    global _minute_window, _minute_counts
 
     endpoint = request.endpoint
     if endpoint not in RATE_LIMITS:
@@ -94,33 +185,49 @@ def _enforce_limits():
         if isinstance(message, str) and len(message) > MAX_MESSAGE_CHARS:
             return jsonify({"error": f"Message is too long (limit {MAX_MESSAGE_CHARS} characters)."}), 413
 
+    client = _client_id()
     with _lock:
         window = int(time.time() // 60)
         if window != _minute_window:
             _minute_window, _minute_counts = window, {}
-
-        key = (endpoint, _client_id())
+        key = (endpoint, client)
         if _minute_counts.get(key, 0) >= RATE_LIMITS[endpoint]:
             return _too_many("Too many requests. Please wait a minute and try again.")
-
-        if endpoint == "query":
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            if today != _day:
-                _day, _day_queries = today, 0
-            if _day_queries >= DAILY_QUERY_LIMIT:
-                return _too_many("CLIO has reached its daily question limit. Please try again tomorrow.")
-            _day_queries += 1
-
         _minute_counts[key] = _minute_counts.get(key, 0) + 1
 
+    # Map selections load data into memory; a few at a time keeps the instance up.
+    if endpoint == "region_select":
+        if not _region_slots.acquire(blocking=False):
+            return _too_many("CLIO is busy with other map selections. Please try again in a minute.")
+        g.region_slot = True
+
+    over = _take_daily(endpoint, client)
+    if over:
+        return _too_many(over, retry_after=3600)
     return None
+
+
+@app.teardown_request
+def _release_region_slot(_error):
+    if g.pop("region_slot", False):
+        _region_slots.release()
 
 
 @app.after_request
 def _hide_internal_errors(response):
-    # The routes return str(exception) on 500s; keep details in the logs only.
+    # The routes return str(exception) on 500s; keep details in the logs only,
+    # but tell users plainly when Gemini's quota is used up or it is overloaded.
     if response.status_code >= 500 and response.is_json:
-        response.set_data(jsonify({"error": "Internal server error."}).get_data())
+        error = str((response.get_json(silent=True) or {}).get("error", ""))
+        if "RESOURCE_EXHAUSTED" in error:
+            message, response.status_code =                 "CLIO has reached its AI usage limit for now. Please try again later.", 429
+            response.headers["Retry-After"] = "3600"
+        elif "UNAVAILABLE" in error:
+            message, response.status_code =                 "The AI model is busy right now. Please try again in a few minutes.", 503
+            response.headers["Retry-After"] = "120"
+        else:
+            message = "Internal server error."
+        response.set_data(jsonify({"error": message}).get_data())
     return response
 
 

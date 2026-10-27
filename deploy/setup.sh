@@ -12,7 +12,8 @@ gcloud services enable \
     cloudbuild.googleapis.com \
     secretmanager.googleapis.com \
     storage.googleapis.com \
-    billingbudgets.googleapis.com
+    billingbudgets.googleapis.com \
+    firestore.googleapis.com
 
 echo "==> Artifact Registry repository (keeps the 5 newest images, deletes older ones after 30 days)"
 if ! gcloud artifacts repositories describe "$REPO" --location "$REGION" >/dev/null 2>&1; then
@@ -33,6 +34,18 @@ if ! gcloud iam service-accounts describe "$SERVICE_ACCOUNT" >/dev/null 2>&1; th
 fi
 gcloud storage buckets add-iam-policy-binding "gs://$BUCKET" \
     --member "serviceAccount:$SERVICE_ACCOUNT" --role roles/storage.objectViewer >/dev/null
+
+echo "==> Firestore database for daily usage counts (LIMITS_STORE=firestore)"
+if ! gcloud firestore databases describe --database "(default)" >/dev/null 2>&1; then
+    gcloud firestore databases create --database "(default)" --location "$REGION" --type firestore-native
+fi
+gcloud projects add-iam-policy-binding "$PROJECT_ID" --condition None \
+    --member "serviceAccount:$SERVICE_ACCOUNT" --role roles/datastore.user >/dev/null
+# Day-old counters delete themselves (each document carries an expireAt timestamp).
+for collection in clio_daily_totals clio_daily_clients; do
+    gcloud firestore fields ttls update expireAt --collection-group "$collection" \
+        --enable-ttl --async >/dev/null
+done
 
 echo "==> Gemini API key in Secret Manager"
 if ! gcloud secrets describe "$SECRET_NAME" >/dev/null 2>&1; then
