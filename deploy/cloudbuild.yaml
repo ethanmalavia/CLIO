@@ -1,0 +1,34 @@
+# Continuous deployment, run by the Cloud Build trigger that deploy/setup_trigger.sh
+# creates: every push to the watched branch builds the image and rolls it out.
+#
+# Only the image changes. The service keeps the settings deploy/deploy.sh gave it
+# (data volume, Gemini secret, env vars, CPU/memory, public access), so change
+# those with deploy.sh, not here. The service must exist (run deploy.sh once).
+#
+# Substitutions (set on the trigger): _REGION, _REPO, _SERVICE
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA", "."]
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args: ["push", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA"]
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --region=${_REGION}
+      - --quiet
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+
+options:
+  logging: CLOUD_LOGGING_ONLY   # required when the build runs as its own service account
+timeout: 1200s
