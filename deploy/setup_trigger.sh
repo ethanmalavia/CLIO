@@ -23,20 +23,30 @@ if ! gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$
     exit 1
 fi
 
+# A new service account takes a few seconds to reach IAM; retry grants meanwhile.
+retry() {
+    for attempt in 1 2 3 4 5 6; do
+        "$@" && return 0
+        echo "   (not ready yet, retrying in 10 s)" >&2
+        sleep 10
+    done
+    return 1
+}
+
 echo "==> Deployer service account (build, push to $REPO, deploy $SERVICE)"
 if ! gcloud iam service-accounts describe "$DEPLOYER" --project "$PROJECT_ID" >/dev/null 2>&1; then
     gcloud iam service-accounts create "$DEPLOYER_NAME" --project "$PROJECT_ID" \
         --display-name "CLIO Cloud Build deployer ($SERVICE)"
 fi
-gcloud artifacts repositories add-iam-policy-binding "$REPO" --project "$PROJECT_ID" \
+retry gcloud artifacts repositories add-iam-policy-binding "$REPO" --project "$PROJECT_ID" \
     --location "$REGION" --member "serviceAccount:$DEPLOYER" \
     --role roles/artifactregistry.writer >/dev/null
-gcloud run services add-iam-policy-binding "$SERVICE" --project "$PROJECT_ID" \
+retry gcloud run services add-iam-policy-binding "$SERVICE" --project "$PROJECT_ID" \
     --region "$REGION" --member "serviceAccount:$DEPLOYER" --role roles/run.developer >/dev/null
 # Deploying a revision that runs as the runtime account requires acting as it.
-gcloud iam service-accounts add-iam-policy-binding "$SERVICE_ACCOUNT" --project "$PROJECT_ID" \
+retry gcloud iam service-accounts add-iam-policy-binding "$SERVICE_ACCOUNT" --project "$PROJECT_ID" \
     --member "serviceAccount:$DEPLOYER" --role roles/iam.serviceAccountUser >/dev/null
-gcloud projects add-iam-policy-binding "$PROJECT_ID" --condition None \
+retry gcloud projects add-iam-policy-binding "$PROJECT_ID" --condition None \
     --member "serviceAccount:$DEPLOYER" --role roles/logging.logWriter >/dev/null
 
 echo "==> GitHub connection '$CONNECTION'"
