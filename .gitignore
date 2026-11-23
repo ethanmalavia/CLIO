@@ -27,3 +27,16 @@ build/
 
 # Claude Context
 CLAUDE.md
+
+# Archives of the data directory
+*.zip
+
+# Local deployment settings (one .env per service)
+deploy/*.env
+
+# Unpublished manuscript drafts
+*.docx
+
+
+# Staging folder of deploy/build_chromadb.sh
+.build-chromadb/
